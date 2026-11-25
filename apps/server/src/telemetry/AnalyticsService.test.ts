@@ -463,4 +463,56 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("AnalyticsService
       assert.deepEqual(capturedPaths, []);
     }),
   );
+
+  it.effect("disables telemetry by default and requires T3CODE_POSTHOG_HOST when opted in", () =>
+    Effect.gen(function* () {
+      const sendBatchWithEnv = (envConfig: Readonly<Record<string, unknown>>) =>
+        Effect.gen(function* () {
+          const requestedUrls: Array<string> = [];
+          const client = HttpClient.make((request) =>
+            Effect.sync(() => {
+              requestedUrls.push(request.url);
+              return HttpClientResponse.fromWeb(request, new Response(null, { status: 204 }));
+            }),
+          );
+          const runtimeLayer = AnalyticsService.layer.pipe(
+            Layer.provideMerge(
+              ServerConfig.ServerConfig.layerTest(process.cwd(), {
+                prefix: "t3-telemetry-defaults-",
+              }),
+            ),
+            Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(envConfig))),
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(HostProcess.Platform, "linux"),
+                Layer.succeed(HostProcess.Architecture, "arm64"),
+                Layer.succeed(HttpClient.HttpClient, client),
+                ManagedPolicy.layerTest(),
+              ),
+            ),
+          );
+
+          yield* Effect.gen(function* () {
+            const analytics = yield* AnalyticsService.AnalyticsService;
+            yield* analytics.record("test.default", { index: 1 });
+            yield* analytics.flush;
+          }).pipe(Effect.provide(runtimeLayer));
+          return requestedUrls;
+        });
+
+      assert.deepEqual(
+        yield* sendBatchWithEnv({ T3CODE_POSTHOG_HOST: "https://telemetry.example.test" }),
+        [],
+      );
+      assert.deepEqual(yield* sendBatchWithEnv({ T3CODE_TELEMETRY_ENABLED: true }), []);
+      assert.deepEqual(
+        yield* sendBatchWithEnv({
+          T3CODE_TELEMETRY_ENABLED: true,
+          T3CODE_POSTHOG_HOST: "https://telemetry.example.test/",
+          T3CODE_POSTHOG_KEY: "phc_custom",
+        }),
+        ["https://telemetry.example.test/batch/"],
+      );
+    }),
+  );
 });

@@ -103,7 +103,13 @@ export const installRelayTelemetryEnabled = Effect.fn("desktop.ipc.window.instal
         handler: () =>
           shellEnvironment.discoveryFinished.pipe(
             Effect.map((known) =>
-              !policyAllows || !isRelayTracingEnabled(env) ? false : known ? true : null,
+              !policyAllows
+                ? false
+                : known
+                  ? isRelayTracingEnabled(env)
+                  : env.T3CODE_TELEMETRY_ENABLED !== undefined && !isRelayTracingEnabled(env)
+                    ? false
+                    : null,
             ),
           ),
       }),

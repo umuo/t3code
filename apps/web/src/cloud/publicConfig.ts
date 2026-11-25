@@ -70,13 +70,19 @@ export function setServerRelayTelemetry(allowed: boolean | null): void {
   serverRelayTelemetry = allowed;
 }
 
+function isHostedTelemetryEnabled(): boolean {
+  return (
+    (import.meta.env.VITE_TELEMETRY_ENABLED as string | undefined)?.trim().toLowerCase() === "true"
+  );
+}
+
 export function relayTelemetryEnabled(): boolean | null {
-  if (typeof window === "undefined") return true;
+  if (typeof window === "undefined") return false;
   if (window.desktopBridge) {
     desktopRelayTelemetry ??= window.desktopBridge.getRelayTelemetryEnabled();
     return desktopRelayTelemetry;
   }
-  return serverRelayTelemetry ?? (isHostedStaticApp() ? true : null);
+  return serverRelayTelemetry ?? (isHostedStaticApp() ? isHostedTelemetryEnabled() : null);
 }
 
 export function resolveRelayTracingConfig() {

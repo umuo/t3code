@@ -6,7 +6,12 @@ import assetLinks from "../web/public/.well-known/assetlinks.json";
 
 // Keep config parsing independent of local env files and build credentials.
 vi.mock("../../scripts/lib/public-config.ts", () => ({
-  loadRepoEnv: () => ({ APP_VARIANT: process.env.APP_VARIANT }),
+  loadRepoEnv: () => ({
+    ...(process.env.APP_VARIANT !== undefined ? { APP_VARIANT: process.env.APP_VARIANT } : {}),
+    ...(process.env.EXPO_PUBLIC_OTLP_TRACES_URL !== undefined
+      ? { EXPO_PUBLIC_OTLP_TRACES_URL: process.env.EXPO_PUBLIC_OTLP_TRACES_URL }
+      : {}),
+  }),
 }));
 
 afterEach(() => {
@@ -44,4 +49,15 @@ it.each([
     { scheme: "https", host, pathPrefix: "/threads/" },
   ]);
   expect(assetLinks.map((link) => link.target.package_name)).toContain(identifier);
+});
+
+it("leaves mobile tracesUrl unset by default and honors EXPO_PUBLIC_OTLP_TRACES_URL", async () => {
+  const defaultConfig = await loadConfig(undefined);
+  expect(defaultConfig.extra?.observability?.tracesUrl).toBeNull();
+
+  vi.stubEnv("EXPO_PUBLIC_OTLP_TRACES_URL", "https://traces.example.test/v1/traces");
+  const customConfig = await loadConfig(undefined);
+  expect(customConfig.extra?.observability?.tracesUrl).toBe(
+    "https://traces.example.test/v1/traces",
+  );
 });

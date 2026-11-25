@@ -61,6 +61,13 @@ describe("web runtime relay telemetry policy", () => {
       surface: "hosted app",
       desktopBridge: undefined,
       location: new URL("https://app.example.test/"),
+      exports: false,
+    },
+    {
+      surface: "hosted app opted in",
+      desktopBridge: undefined,
+      location: new URL("https://app.example.test/"),
+      hostedTelemetryEnabled: "true",
       exports: true,
     },
   ])("applies $surface before the first relay span", async (surface) => {
@@ -69,6 +76,10 @@ describe("web runtime relay telemetry policy", () => {
     vi.stubEnv("T3CODE_TELEMETRY_ENABLED", "false");
     vi.stubEnv("T3CODE_OTEL_SDK_DISABLED", "true");
     vi.stubEnv("OTEL_SDK_DISABLED", "true");
+    vi.stubEnv(
+      "VITE_TELEMETRY_ENABLED",
+      "hostedTelemetryEnabled" in surface ? surface.hostedTelemetryEnabled : "",
+    );
     vi.stubEnv("VITE_RELAY_OTLP_TRACES_URL", "https://telemetry.example.test/v1/traces");
     vi.stubEnv("VITE_RELAY_OTLP_TRACES_DATASET", "relay-test");
     vi.stubEnv("VITE_RELAY_OTLP_TRACES_TOKEN", "test-token");
