@@ -135,7 +135,7 @@ jobs:
       release_channel: stable
       relay_client_tracing: false
       label: macOS arm64
-      runner: macos-15
+      runner: macos-26
       platform: mac
       target: dmg
       arch: arm64
