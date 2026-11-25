@@ -246,6 +246,10 @@ const layerService = (input: {
         ANTIGRAVITY_DATA_DIR: NodePath.join(input.home, "antigravity"),
         XDG_CONFIG_HOME: NodePath.join(input.home, "config"),
         APPDATA: NodePath.join(input.home, "config"),
+        T3CODE_USAGE_RATES_URL:
+          "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
+        T3CODE_USAGE_RATES_API_URL:
+          "https://api.github.com/repos/BerriAI/litellm/contents/model_prices_and_context_window.json?ref=main",
         ...input.environment,
       }),
     ),
@@ -526,6 +530,35 @@ describe("Codex usage history", () => {
 });
 
 describe("UsageService", () => {
+  it.effect("skips remote rate fetches when usage rate URLs are unconfigured", () =>
+    Effect.gen(function* () {
+      const { home, settings } = yield* setup;
+      let fetches = 0;
+      const summary = yield* Effect.gen(function* () {
+        const service = yield* UsageService.make;
+        return yield* service.readSummary(WINDOW);
+      }).pipe(
+        Effect.provide(
+          layerService({
+            prefix: "offline-rates",
+            home,
+            settings,
+            environment: {
+              T3CODE_USAGE_RATES_URL: "",
+              T3CODE_USAGE_RATES_API_URL: "",
+            },
+            onRatesFetch: () => {
+              fetches += 1;
+            },
+          }),
+        ),
+      );
+      assert.strictEqual(fetches, 0);
+      assert.strictEqual(summary.pricing.status, "unavailable");
+      assert.strictEqual(summary.pricing.source, "unconfigured");
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("keeps pricing metadata paired with the rates used during a concurrent refresh", () =>
     Effect.gen(function* () {
       const { home, settings } = yield* setup;

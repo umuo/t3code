@@ -4,6 +4,7 @@ import {
   type ProviderDriverKind,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
+import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -24,9 +25,6 @@ import {
   resolveProviderCompatibility,
 } from "./providerCompatibility.ts";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
-
-const MODEL_MANIFEST_URL =
-  "https://raw.githubusercontent.com/pingdotgg/t3code/main/apps/server/src/provider/model-manifest.json";
 
 const MANIFEST_TTL_MS = 60 * 60 * 1000;
 
@@ -213,6 +211,9 @@ export const make = Effect.gen(function* () {
   const settingsService = yield* ServerSettings.ServerSettingsService;
   const httpClient = yield* HttpClient.HttpClient;
   const serviceScope = yield* Effect.scope;
+  const manifestUrl = (yield* Config.String("T3CODE_MODEL_MANIFEST_URL").pipe(
+    Config.withDefault(""),
+  )).trim();
 
   const cachePath = path.join(config.stateDir, "model-manifest.json");
   let manifest = BUNDLED_MODEL_MANIFEST;
@@ -252,9 +253,10 @@ export const make = Effect.gen(function* () {
       Effect.catchCause(() => Effect.succeed(null)),
     );
     if (settings !== null && !settings.enableProviderUpdateChecks) return manifest;
+    if (manifestUrl === "") return manifest;
 
     lastAttemptMs = now;
-    const fetched = yield* httpClient.get(MODEL_MANIFEST_URL).pipe(
+    const fetched = yield* httpClient.get(manifestUrl).pipe(
       Effect.flatMap(HttpClientResponse.filterStatusOk),
       Effect.flatMap((response) => response.json),
       Effect.flatMap((json) => decodeManifest(json)),

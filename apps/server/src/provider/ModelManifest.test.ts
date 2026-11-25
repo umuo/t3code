@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderDriverKind } from "@t3tools/contracts";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
 import * as Effect from "effect/Effect";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -258,14 +259,51 @@ const layerService = (input: {
   readonly prefix: string;
   readonly response: () => Response;
   readonly settings?: Parameters<typeof ServerSettings.layerTest>[0];
+  readonly manifestUrl?: string | null;
 }) =>
   ServerConfig.layerTest(process.cwd(), { prefix: input.prefix }).pipe(
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(ServerSettings.layerTest(input.settings ?? {})),
+    Layer.provideMerge(
+      ConfigProvider.layer(
+        ConfigProvider.fromUnknown(
+          input.manifestUrl === null
+            ? {}
+            : {
+                T3CODE_MODEL_MANIFEST_URL:
+                  input.manifestUrl ?? "https://manifest.example.test/model-manifest.json",
+              },
+        ),
+      ),
+    ),
     Layer.provideMerge(layerHttpClient(input.response)),
   );
 
 describe("ModelManifest service", () => {
+  it.effect(
+    "uses the bundled manifest without fetching when T3CODE_MODEL_MANIFEST_URL is unset",
+    () => {
+      let fetches = 0;
+      return Effect.gen(function* () {
+        const service = yield* ModelManifest.make;
+        assert.deepStrictEqual(yield* service.refresh, ModelManifest.BUNDLED_MODEL_MANIFEST);
+        assert.deepStrictEqual(yield* service.forceRefresh, ModelManifest.BUNDLED_MODEL_MANIFEST);
+        assert.strictEqual(fetches, 0);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          layerService({
+            prefix: "model-manifest-offline-default-test",
+            manifestUrl: null,
+            response: () => {
+              fetches += 1;
+              return Response.json(REMOTE_MANIFEST);
+            },
+          }),
+        ),
+      );
+    },
+  );
   it.effect("prefers a fetched manifest over the bundle and caches it to disk", () =>
     Effect.gen(function* () {
       const service = yield* ModelManifest.make;

@@ -69,10 +69,7 @@ import {
   type ScanCache,
 } from "./usageScanCache.ts";
 
-const LITELLM_RATES_URL =
-  "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
-const LITELLM_RATES_API_URL =
-  "https://api.github.com/repos/BerriAI/litellm/contents/model_prices_and_context_window.json?ref=main";
+const UNCONFIGURED_RATES_SOURCE = "unconfigured";
 
 const RATES_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -256,6 +253,9 @@ export const make = Effect.gen(function* () {
       Effect.map((value) => value.trim() || hostname),
       Effect.orElseSucceed(() => hostname),
     ));
+  const ratesUrl = hostEnvironment.T3CODE_USAGE_RATES_URL?.trim() ?? "";
+  const ratesApiUrl = hostEnvironment.T3CODE_USAGE_RATES_API_URL?.trim() ?? "";
+  const ratesSource = ratesUrl || ratesApiUrl || UNCONFIGURED_RATES_SOURCE;
   let rates: RateTable = new Map();
   let ratesFetchedAtMs: number | null = null;
   let ratesLastFailedAtMs: number | null = null;
@@ -264,7 +264,7 @@ export const make = Effect.gen(function* () {
 
   const pricing = (): UsagePricing => ({
     status: ratesStatus,
-    source: LITELLM_RATES_URL,
+    source: ratesSource,
     fetchedAt:
       ratesFetchedAtMs === null ? null : DateTime.formatIso(DateTime.makeUnsafe(ratesFetchedAtMs)),
     knownModels: rates.size,
@@ -301,12 +301,16 @@ export const make = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
     const maxAgeMs = force ? RATES_REFRESH_FLOOR_MS : RATES_TTL_MS;
     yield* loadSavedRates;
+    if (ratesUrl === "" && ratesApiUrl === "") {
+      if (rates.size > 0) ratesStatus = "cached";
+      return;
+    }
     if (ratesFetchedAtMs !== null && now - ratesFetchedAtMs < maxAgeMs) return;
     if (ratesLastFailedAtMs !== null && now - ratesLastFailedAtMs < RATES_REFRESH_FLOOR_MS) return;
 
-    let fetched = yield* fetchRates(LITELLM_RATES_URL);
-    if (fetched === null) {
-      fetched = yield* fetchRates(LITELLM_RATES_API_URL, "application/vnd.github.raw+json");
+    let fetched = ratesUrl !== "" ? yield* fetchRates(ratesUrl) : null;
+    if (fetched === null && ratesApiUrl !== "") {
+      fetched = yield* fetchRates(ratesApiUrl, "application/vnd.github.raw+json");
     }
     if (fetched === null) {
       ratesLastFailedAtMs = yield* Clock.currentTimeMillis;

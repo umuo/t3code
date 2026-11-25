@@ -154,9 +154,14 @@ export const make = Effect.gen(function* () {
   });
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig.ServerConfig;
-  const { distinctId, installId } = yield* getTelemetryIdentity;
+  const serviceScope = yield* Effect.scope;
+  const identityContext = yield* Effect.context<Effect.Services<typeof getTelemetryIdentity>>();
+  const resolveTelemetryIdentity = yield* Effect.cached(
+    getTelemetryIdentity.pipe(Effect.provide(identityContext)),
+  );
   const crypto = yield* SecureRandom.SecureRandom;
   const bufferRef = yield* Ref.make<ReadonlyArray<BufferedAnalyticsEvent>>([]);
+  const flushLoopStartedRef = yield* Ref.make(false);
   const deliveryRef = yield* Ref.make<DeliveryState>({
     failedBatch: [],
     batchAttempts: 0,
@@ -211,7 +216,9 @@ export const make = Effect.gen(function* () {
     events: ReadonlyArray<BufferedAnalyticsEvent>,
   ) {
     const posthogHost = resolvePosthogHost();
-    if (!(yield* telemetryEnabled) || !distinctId || posthogHost === "") return;
+    if (!(yield* telemetryEnabled) || posthogHost === "") return;
+    const { distinctId, installId } = yield* resolveTelemetryIdentity;
+    if (!distinctId) return;
 
     const payload = {
       api_key: resolvePosthogKey(),
@@ -332,9 +339,24 @@ export const make = Effect.gen(function* () {
     }
   });
 
+  const ensureFlushLoopStarted = Ref.modify(
+    flushLoopStartedRef,
+    (started) => [!started, true] as const,
+  ).pipe(
+    Effect.flatMap((shouldStart) =>
+      shouldStart
+        ? Effect.forever(Effect.sleep(FLUSH_INTERVAL_MS).pipe(Effect.andThen(flushWhenDue)), {
+            disableYield: true,
+          }).pipe(Effect.forkIn(serviceScope), Effect.asVoid)
+        : Effect.void,
+    ),
+  );
+
   const record: AnalyticsService["Service"]["record"] = Effect.fn("AnalyticsService.record")(
     function* (event, properties, options) {
-      if (!(yield* telemetryEnabled) || !distinctId) return false;
+      if (!(yield* telemetryEnabled)) return false;
+      const { distinctId } = yield* resolveTelemetryIdentity;
+      if (!distinctId) return false;
 
       // Catch Node UUID defects too; best-effort telemetry drops events without UUIDs.
       const uuid = yield* Effect.exit(crypto.uuidV7());
@@ -352,6 +374,7 @@ export const make = Effect.gen(function* () {
           event,
         });
       }
+      yield* ensureFlushLoopStarted;
       return true;
     },
   );
@@ -378,10 +401,6 @@ export const make = Effect.gen(function* () {
       { discard: true },
     ),
   );
-
-  yield* Effect.forever(Effect.sleep(FLUSH_INTERVAL_MS).pipe(Effect.andThen(flushWhenDue)), {
-    disableYield: true,
-  }).pipe(Effect.forkScoped);
 
   yield* Effect.addFinalizer(() =>
     flush.pipe(Effect.timeout(SHUTDOWN_FLUSH_TIMEOUT), Effect.ignore),

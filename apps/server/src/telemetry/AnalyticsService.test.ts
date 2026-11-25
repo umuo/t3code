@@ -7,6 +7,7 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -492,26 +493,33 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("AnalyticsService
             ),
           );
 
-          yield* Effect.gen(function* () {
+          const result = yield* Effect.gen(function* () {
             const analytics = yield* AnalyticsService.AnalyticsService;
+            const fileSystem = yield* FileSystem.FileSystem;
+            const serverConfig = yield* ServerConfig.ServerConfig;
             yield* analytics.record("test.default", { index: 1 });
             yield* analytics.flush;
+            const anonymousIdExists = yield* fileSystem.exists(serverConfig.anonymousIdPath);
+            return { requestedUrls, anonymousIdExists };
           }).pipe(Effect.provide(runtimeLayer));
-          return requestedUrls;
+          return result;
         });
 
       assert.deepEqual(
         yield* sendBatchWithEnv({ T3CODE_POSTHOG_HOST: "https://telemetry.example.test" }),
-        [],
+        { requestedUrls: [], anonymousIdExists: false },
       );
-      assert.deepEqual(yield* sendBatchWithEnv({ T3CODE_TELEMETRY_ENABLED: true }), []);
+      assert.deepEqual(yield* sendBatchWithEnv({ T3CODE_TELEMETRY_ENABLED: true }), {
+        requestedUrls: [],
+        anonymousIdExists: false,
+      });
       assert.deepEqual(
         yield* sendBatchWithEnv({
           T3CODE_TELEMETRY_ENABLED: true,
           T3CODE_POSTHOG_HOST: "https://telemetry.example.test/",
           T3CODE_POSTHOG_KEY: "phc_custom",
         }),
-        ["https://telemetry.example.test/batch/"],
+        { requestedUrls: ["https://telemetry.example.test/batch/"], anonymousIdExists: true },
       );
     }),
   );

@@ -139,6 +139,29 @@ describe("DesktopUpdates", () => {
     ).pipe(Effect.provide(harness.layer));
   });
 
+  it.effect(
+    "disables automatic updates by default when T3CODE_DISABLE_AUTO_UPDATE is unset",
+    () => {
+      const harness = makeHarness({ env: { T3CODE_DISABLE_AUTO_UPDATE: undefined } });
+
+      return Effect.scoped(
+        Effect.gen(function* () {
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+
+          const state = yield* updates.getState;
+          assert.isFalse(state.enabled);
+          assert.equal(state.status, "disabled");
+          assert.equal(
+            state.message,
+            "Automatic updates are disabled by the T3CODE_DISABLE_AUTO_UPDATE setting.",
+          );
+          assert.equal(harness.checkCount(), 0);
+        }),
+      ).pipe(Effect.provide(harness.layer));
+    },
+  );
+
   it.effect("re-checks an offered update without announcing it again", () => {
     const harness = makeHarness();
 
